@@ -16,4 +16,4 @@ A simple csv to json command line serializer tool.
 
 Run with arguments
 
-`cargo run -- -I ./input.csv -O ./output.json
+`cargo run -- -I ./input.csv -O ./output.json`

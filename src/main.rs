@@ -1,4 +1,7 @@
 #![allow(dead_code)]
+mod init;
+
+use crate::init::init;
 use csv::StringRecord;
 use serde_json::{Map, Value};
 use std::env;
@@ -9,27 +12,17 @@ use std::process::exit;
 const HAS_HEADERS: bool = true;
 
 fn main() {
+    // Benchmark
+    let start = std::time::Instant::now();
+
     // Get command line args
-    let input_path = match get_env(&vec!["-I", "-input"]) {
-        Some(input_path) => input_path,
-        None => {
-            println!("No input path given");
-            exit(1);
-        }
-    };
-    let output_path = match get_env(&vec!["-O", "-output"]) {
-        Some(output_path) => output_path,
-        None => {
-            println!("No output path given");
-            exit(1);
-        }
-    };
+    let (input_path, output_path) = init();
 
     // Find input file
     let mut reader = match csv::Reader::from_path(input_path) {
         Ok(reader) => reader,
         Err(_) => {
-            println!("Invalid path");
+            println!("Invalid input path");
             exit(1);
         }
     };
@@ -81,11 +74,12 @@ fn main() {
         }
     };
     match file.write_all(output.as_bytes()) {
-        Ok(_) => println!("Created new JSON file '{:?}'", output_path.clone()),
+        Ok(_) => println!("Created JSON file."),
         Err(_) => println!("Failed creating new JSON file '{:?}'", output_path.clone()),
     }
 
-    println!("Done!");
+    println!("Done! ({:?})", start.elapsed());
+    println!("");
 }
 
 fn record_to_json(keys: &Vec<String>, record: &StringRecord) -> Result<Value, String> {

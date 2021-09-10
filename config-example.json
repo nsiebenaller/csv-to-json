@@ -1,0 +1,9 @@
+{
+  "input": "./input.csv",
+  "output": "./output.json",
+  "schema": {
+    "Id": {
+      "alias": "header-from-csv"
+    }
+  }
+}

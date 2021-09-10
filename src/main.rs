@@ -1,7 +1,8 @@
 #![allow(dead_code)]
-mod init;
+mod config;
+pub mod json;
+pub mod schema;
 
-use crate::init::init;
 use csv::StringRecord;
 use serde_json::{Map, Value};
 use std::env;
@@ -16,10 +17,10 @@ fn main() {
     let start = std::time::Instant::now();
 
     // Get command line args
-    let (input_path, output_path) = init();
+    let config = config::init();
 
     // Find input file
-    let mut reader = match csv::Reader::from_path(input_path) {
+    let mut reader = match csv::Reader::from_path(config.input) {
         Ok(reader) => reader,
         Err(_) => {
             println!("Invalid input path");
@@ -46,7 +47,7 @@ fn main() {
     let mut json_array = Vec::new();
     for (row, line_result) in reader.records().into_iter().enumerate() {
         match line_result {
-            Ok(line) => match record_to_json(&keys, &line) {
+            Ok(line) => match record_to_json(&keys, &line, &config.schema) {
                 Ok(entry) => json_array.push(entry),
                 Err(err_msg) => {
                     println!("Error processing CSV row {:?} ERR: {:?}", row, err_msg);
@@ -66,7 +67,7 @@ fn main() {
             exit(1);
         }
     };
-    let mut file = match File::create(output_path.clone()) {
+    let mut file = match File::create(config.output.clone()) {
         Ok(file) => file,
         Err(_) => {
             println!("Failed creating new output file");
@@ -75,14 +76,21 @@ fn main() {
     };
     match file.write_all(output.as_bytes()) {
         Ok(_) => println!("Created JSON file."),
-        Err(_) => println!("Failed creating new JSON file '{:?}'", output_path.clone()),
+        Err(_) => println!(
+            "Failed creating new JSON file '{:?}'",
+            config.output.clone()
+        ),
     }
 
     println!("Done! ({:?})", start.elapsed());
     println!("");
 }
 
-fn record_to_json(keys: &Vec<String>, record: &StringRecord) -> Result<Value, String> {
+fn record_to_json(
+    keys: &Vec<String>,
+    record: &StringRecord,
+    schema: &Option<schema::Schema>,
+) -> Result<Value, String> {
     let mut json = Map::new();
     for (i, value) in record.iter().enumerate() {
         let key = match keys.get(i) {
@@ -91,9 +99,23 @@ fn record_to_json(keys: &Vec<String>, record: &StringRecord) -> Result<Value, St
                 return Err(format!("Extra column found {:?}", i));
             }
         };
-        json.insert(key.to_string(), Value::String(value.to_string()));
+        json.insert(alias(key, schema), Value::String(value.to_string()));
     }
     return Ok(Value::Object(json.to_owned()));
+}
+
+fn alias(key: &String, schema: &Option<schema::Schema>) -> String {
+    match schema {
+        Some(fields) => {
+            for field in fields {
+                if key.eq(&field.alias) {
+                    return field.name.to_string();
+                }
+            }
+            String::from(key.to_owned())
+        }
+        None => String::from(key.to_owned()),
+    }
 }
 
 fn get_env(names: &Vec<&str>) -> Option<String> {

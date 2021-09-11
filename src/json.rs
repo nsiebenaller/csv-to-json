@@ -2,6 +2,7 @@ use serde_json::{Map, Value};
 use std::fs::File;
 use std::io::{BufReader, Error, ErrorKind};
 
+#[derive(Debug)]
 pub struct JsonObject {
     inner: Map<String, Value>,
 }
@@ -27,6 +28,18 @@ impl JsonObject {
                         inner: inner.to_owned(),
                     })
                 }
+                _ => None,
+            },
+            None => None,
+        }
+    }
+    pub fn get_entries(&self) -> serde_json::map::Iter {
+        self.inner.iter()
+    }
+    pub fn get_bool(&self, key: &str) -> Option<bool> {
+        match self.inner.get(key) {
+            Some(value) => match value {
+                Value::Bool(bool) => return Some(*bool),
                 _ => None,
             },
             None => None,

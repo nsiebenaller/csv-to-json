@@ -4,7 +4,9 @@ pub mod json;
 pub mod schema;
 
 use csv::StringRecord;
+use schema::{Schema, SchemaFieldType};
 use serde_json::{Map, Value};
+use std::collections::HashMap;
 use std::env;
 use std::fs::File;
 use std::io::Write;
@@ -87,35 +89,134 @@ fn main() {
 }
 
 fn record_to_json(
-    keys: &Vec<String>,
+    headers: &Vec<String>,
     record: &StringRecord,
-    schema: &Option<schema::Schema>,
+    schema: &Option<Schema>,
 ) -> Result<Value, String> {
     let mut json = Map::new();
-    for (i, value) in record.iter().enumerate() {
-        let key = match keys.get(i) {
-            Some(key) => key,
+
+    // Seed json with Schema
+    match schema {
+        Some(schema_fields) => {
+            for schema_field in schema_fields {
+                match schema_field.field_type {
+                    SchemaFieldType::String => {
+                        // Check if header should be loaded as value
+                        if schema_field.header {
+                            for header in headers {
+                                match schema_field.match_alias(header.to_string()) {
+                                    true => {
+                                        json.insert(
+                                            schema_field.name.to_string(),
+                                            Value::String(header.to_string()),
+                                        );
+                                    }
+                                    false => {
+                                        json.insert(schema_field.name.to_string(), Value::Null);
+                                    }
+                                }
+                            }
+                        } else {
+                            json.insert(schema_field.name.to_string(), Value::Null);
+                        }
+                    }
+                    SchemaFieldType::Array => {
+                        json.insert(schema_field.name.to_string(), Value::Array(Vec::new()));
+                    }
+                    _ => {
+                        json.insert(schema_field.name.to_string(), Value::Null);
+                    }
+                };
+            }
+        }
+        None => {}
+    }
+
+    for (index, value) in record.iter().enumerate() {
+        let header = match headers.get(index) {
+            Some(header) => header,
             None => {
-                return Err(format!("Extra column found {:?}", i));
+                return Err(format!("Extra column found {:?}", index));
             }
         };
-        json.insert(alias(key, schema), Value::String(value.to_string()));
-    }
-    return Ok(Value::Object(json.to_owned()));
-}
 
-fn alias(key: &String, schema: &Option<schema::Schema>) -> String {
-    match schema {
-        Some(fields) => {
-            for field in fields {
-                if key.eq(&field.alias) {
-                    return field.name.to_string();
+        // Check if Schema is defined
+        match schema {
+            Some(schema_fields) => {
+                // @TODO: Extract this section for recursion (deep nested schema objects)
+                // Check Type of schema fields
+                for schema_field in schema_fields {
+                    match schema_field.field_type {
+                        SchemaFieldType::String => {
+                            if !schema_field.header {
+                                match schema_field.match_alias(header.to_string()) {
+                                    true => {
+                                        json.insert(
+                                            schema_field.name.to_string(),
+                                            Value::String(value.to_string()),
+                                        );
+                                    }
+                                    false => {}
+                                }
+                            }
+                        }
+                        SchemaFieldType::Array => {
+                            // @TODO: Handle array of strings
+                            // @TODO: Handle array of numbers
+
+                            // Impl: Array of objects
+                            let mut header_map: HashMap<String, Map<String, Value>> =
+                                HashMap::new();
+                            for property in &schema_field.properties {
+                                // Check if any properties match header
+                                if property.match_alias(header.to_string()) {
+                                    // Insert property into array
+                                    match header_map.get_mut(header) {
+                                        Some(json_object) => {
+                                            let json_value = if property.header {
+                                                header.to_string()
+                                            } else {
+                                                value.to_string()
+                                            };
+                                            json_object.insert(
+                                                property.name.to_string(),
+                                                Value::String(json_value),
+                                            );
+                                        }
+                                        None => {
+                                            // First instance of property
+                                            let mut new_map = Map::new();
+                                            let json_value = if property.header {
+                                                header.to_string()
+                                            } else {
+                                                value.to_string()
+                                            };
+                                            new_map.insert(
+                                                property.name.to_string(),
+                                                Value::String(json_value),
+                                            );
+                                            header_map.insert(header.to_string(), new_map);
+                                        }
+                                    };
+                                }
+                            }
+
+                            let mut json_array = Vec::new();
+                            for array_element in header_map.values() {
+                                json_array.push(Value::Object(array_element.clone()));
+                            }
+                            json.insert(schema_field.name.to_string(), Value::Array(json_array));
+                        }
+                        _ => { /* Unsupported SchemaFieldType */ }
+                    }
                 }
             }
-            String::from(key.to_owned())
+            None => {
+                json.insert(header.to_string(), Value::String(value.to_string()));
+            }
         }
-        None => String::from(key.to_owned()),
     }
+    return Ok(Value::Object(json.to_owned()));
 }
 
 fn get_env(names: &Vec<&str>) -> Option<String> {
